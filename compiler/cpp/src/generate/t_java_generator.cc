@@ -118,9 +118,11 @@ class t_java_generator : public t_oop_generator {
 
   void generate_service_interface (t_service* tservice);
   void generate_service_async_interface(t_service* tservice);
+  void generate_service_service_interface(t_service* tservice);
   void generate_service_helpers   (t_service* tservice);
   void generate_service_client    (t_service* tservice);
   void generate_service_async_client(t_service* tservice);
+  void generate_service_service_client(t_service* tservice);
   void generate_service_server    (t_service* tservice);
   void generate_process_function  (t_service* tservice, t_function* tfunction);
 
@@ -215,16 +217,20 @@ class t_java_generator : public t_oop_generator {
   std::string java_package();
   std::string java_type_imports();
   std::string java_thrift_imports();
+  std::string java_service_imports();
   std::string type_name(t_type* ttype, bool in_container=false, bool in_init=false, bool skip_generic=false);
   std::string base_type_name(t_base_type* tbase, bool in_container=false);
   std::string declare_field(t_field* tfield, bool init=false);
   std::string function_signature(t_function* tfunction, std::string prefix="");
   std::string function_signature_async(t_function* tfunction, bool use_base_method = false, std::string prefix="");
+  std::string function_signature_service(t_function* tfunction, std::string prefix="");
   std::string argument_list(t_struct* tstruct, bool include_types = true);
   std::string async_function_call_arglist(t_function* tfunc, bool use_base_method = true, bool include_types = true);
   std::string async_argument_list(t_function* tfunct, t_struct* tstruct, t_type* ttype, bool include_types=false);
   std::string type_to_enum(t_type* ttype);
   std::string get_enum_class_name(t_type* type);
+  std::string boxed_type_name(t_type* type);
+
   void generate_struct_desc(ofstream& out, t_struct* tstruct);
   void generate_field_descs(ofstream& out, t_struct* tstruct);
   void generate_field_name_constants(ofstream& out, t_struct* tstruct);
@@ -342,6 +348,17 @@ string t_java_generator::java_thrift_imports() {
     "import org.apache.thrift.meta_data.*;\n" +
     "import org.apache.thrift.transport.*;\n" +
     "import org.apache.thrift.protocol.*;\n\n";
+}
+
+string t_java_generator::java_service_imports() {
+  return
+    string() +
+    "import com.twitter.util.Future;\n" +
+    "import com.twitter.util.Function;\n" +
+    "import com.twitter.util.Try;\n" +
+    "import com.twitter.util.Return;\n" +
+    "import com.twitter.util.Throw;\n" +
+    "import com.twitter.finagle.Service;\n\n";
 }
 
 /**
@@ -670,7 +687,8 @@ void t_java_generator::generate_java_struct(t_struct* tstruct,
     autogen_comment() <<
     java_package() <<
     java_type_imports() <<
-    java_thrift_imports();
+    java_thrift_imports() <<
+    java_service_imports();
 
   generate_java_struct_definition(f_struct,
                                   tstruct,
@@ -693,7 +711,8 @@ void t_java_generator::generate_java_union(t_struct* tstruct) {
     autogen_comment() <<
     java_package() <<
     java_type_imports() <<
-    java_thrift_imports();
+    java_thrift_imports() <<
+    java_service_imports();
 
   generate_java_doc(f_struct, tstruct);
 
@@ -2137,7 +2156,8 @@ void t_java_generator::generate_service(t_service* tservice) {
     autogen_comment() <<
     java_package() <<
     java_type_imports() <<
-    java_thrift_imports();
+    java_thrift_imports() <<
+    java_service_imports();
 
   f_service_ <<
     "public class " << service_name_ << " {" << endl <<
@@ -2147,8 +2167,10 @@ void t_java_generator::generate_service(t_service* tservice) {
   // Generate the three main parts of the service
   generate_service_interface(tservice);
   generate_service_async_interface(tservice);
+  generate_service_service_interface(tservice);
   generate_service_client(tservice);
   generate_service_async_client(tservice);
+  generate_service_service_client(tservice);
   generate_service_server(tservice);
   generate_service_helpers(tservice);
 
@@ -2199,6 +2221,25 @@ void t_java_generator::generate_service_async_interface(t_service* tservice) {
   vector<t_function*>::iterator f_iter;
   for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
     indent(f_service_) << "public " << function_signature_async(*f_iter, true) << " throws TException;" << endl << endl;
+  }
+  indent_down();
+  f_service_ << indent() << "}" << endl << endl;
+}
+
+void t_java_generator::generate_service_service_interface(t_service* tservice) {
+  string extends = "";
+  string extends_iface = "";
+  if (tservice->get_extends() != NULL) {
+    extends = type_name(tservice->get_extends());
+    extends_iface = " extends " + extends + " .ServiceIface";
+  }
+
+  f_service_ << indent() << "public interface ServiceIface" << extends_iface << " {" << endl << endl;
+  indent_up();
+  vector<t_function*> functions = tservice->get_functions();
+  vector<t_function*>::iterator f_iter;
+  for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
+    indent(f_service_) << "public " << function_signature_service(*f_iter) << " throws TException;" << endl << endl;
   }
   indent_down();
   f_service_ << indent() << "}" << endl << endl;
@@ -2563,6 +2604,87 @@ void t_java_generator::generate_service_async_client(t_service* tservice) {
   }
 
   // Close AsyncClient
+  scope_down(f_service_);
+  f_service_ << endl;
+}
+
+void t_java_generator::generate_service_service_client(t_service* tservice) {
+  string extends = "ServiceIface";
+  string extends_client = "";
+  if (tservice->get_extends() != NULL) {
+    extends = type_name(tservice->get_extends()) + ".ServiceToClient";
+  }
+
+  // TODO: inheritance (breaks with "extends" here)
+
+  indent(f_service_) <<
+    "public static class ServiceToClient implements " << extends << " {" << endl;
+  indent_up();
+
+  indent(f_service_) << "private Service<byte[], byte[]> service;" << endl;
+  indent(f_service_) << "private TProtocolFactory protocolFactory;" << endl;
+
+  indent(f_service_) << "public ServiceToClient(Service<byte[], byte[]> service, TProtocolFactory protocolFactory) {" << endl;
+  indent(f_service_) << "  this.service = service;" << endl;
+  indent(f_service_) << "  this.protocolFactory = protocolFactory;" << endl;
+
+  indent(f_service_) << "}" << endl << endl;
+
+  // Generate client method implementations
+  vector<t_function*> functions = tservice->get_functions();
+  vector<t_function*>::const_iterator f_iter;
+  for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
+    string funname = (*f_iter)->get_name();
+    t_type* ret_type = (*f_iter)->get_returntype();
+    t_struct* arg_struct = (*f_iter)->get_arglist();
+    string funclassname = funname + "_call";
+    const vector<t_field*>& fields = arg_struct->get_members();
+    vector<t_field*>::const_iterator fld_iter;
+    string args_name = (*f_iter)->get_name() + "_args";
+    string result_name = (*f_iter)->get_name() + "_result";
+
+    indent(f_service_) << "public " << function_signature_service(*f_iter) << " throws TException {" << endl;
+    indent(f_service_) << "  // TODO: size" << endl;
+    indent(f_service_) << "  TMemoryBuffer memoryTransport = new TMemoryBuffer(123);" << endl;
+    indent(f_service_) << "  TProtocol prot = protocolFactory.getProtocol(memoryTransport);" << endl;
+    indent_up();
+
+    f_service_ << 
+      indent() << "prot.writeMessageBegin(new TMessage(\"" << funname << "\", TMessageType.CALL, 0));" << endl <<
+      indent() << args_name << " args = new " << args_name << "();" << endl;
+
+    for (fld_iter = fields.begin(); fld_iter != fields.end(); ++fld_iter) {
+      f_service_ << indent() << "args.set" << get_cap_name((*fld_iter)->get_name()) << "(" << (*fld_iter)->get_name() << ");" << endl;
+    }
+
+    f_service_ << 
+      indent() << "args.write(prot);" << endl <<
+      indent() << "prot.writeMessageEnd();" << endl;
+
+    indent_down();
+
+    indent(f_service_) << endl << endl;
+
+    indent(f_service_) << "  Future<byte[]> done = this.service.apply(memoryTransport.getArray());" << endl;
+    
+
+    indent(f_service_) << "  return done.flatMap(new Function<byte[], Try<" + boxed_type_name(ret_type) + ">>() {" << endl;
+
+    indent(f_service_) << "    public Future<" + boxed_type_name(ret_type) + "> apply(byte[] buffer) {"  << endl;
+    indent(f_service_) << "      TMemoryInputTransport memoryTransport = new TMemoryInputTransport(buffer);" << endl;
+    indent(f_service_) << "      TProtocol prot = protocolFactory.getProtocol(memoryTransport);" << endl;
+    indent(f_service_) << "      try {" << endl;
+    indent(f_service_) << "        return Future.value((new Client(prot)).recv_" + funname + "());" << endl;
+    indent(f_service_) << "      } catch (TException e) {" << endl;
+    indent(f_service_) << "        return Future.exception(e);" << endl;
+    indent(f_service_) << "      }" << endl;
+    indent(f_service_) << "    }" << endl;
+    indent(f_service_) << "  });" << endl;
+
+    indent(f_service_) << "}" << endl;
+  }
+
+  // Close ServiceToClient
   scope_down(f_service_);
   f_service_ << endl;
 }
@@ -3448,6 +3570,11 @@ string t_java_generator::async_function_call_arglist(t_function* tfunc, bool use
   return arglist;
 }
 
+string t_java_generator::function_signature_service(t_function* tfunction, string prefix) {
+  t_type* ttype = tfunction->get_returntype();
+  return ("Future<"  + boxed_type_name(ttype) + ">" + " " + prefix + tfunction->get_name() + "(" + argument_list(tfunction->get_arglist()) + ")");
+}
+
 /**
  * Renders a comma separated field list, with type names
  */
@@ -3761,6 +3888,28 @@ std::string t_java_generator::get_enum_class_name(t_type* type) {
 void t_java_generator::generate_struct_desc(ofstream& out, t_struct* tstruct) {
   indent(out) <<
     "private static final TStruct STRUCT_DESC = new TStruct(\"" << tstruct->get_name() << "\");" << endl;
+}
+
+string t_java_generator::boxed_type_name(t_type* type) {
+  if (type->is_base_type()) {
+    switch (((t_base_type*)type)->get_base()) {
+    case t_base_type::TYPE_BOOL:
+      return "Boolean";
+    case t_base_type::TYPE_BYTE:
+      return "Byte";
+    case t_base_type::TYPE_I16:
+      return "Short";
+    case t_base_type::TYPE_I32:
+      return "Integer";
+    case t_base_type::TYPE_I64:
+      return "Long";
+    case t_base_type::TYPE_DOUBLE:
+      return "Double";
+    default:
+      break;
+    }
+  }
+  return type_name(type);
 }
 
 void t_java_generator::generate_field_descs(ofstream& out, t_struct* tstruct) {
