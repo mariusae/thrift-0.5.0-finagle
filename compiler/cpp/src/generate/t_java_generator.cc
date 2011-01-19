@@ -2212,7 +2212,7 @@ void t_java_generator::generate_service_async_interface(t_service* tservice) {
   string extends_iface = "";
   if (tservice->get_extends() != NULL) {
     extends = type_name(tservice->get_extends());
-    extends_iface = " extends " + extends + " .AsyncIface";
+    extends_iface = " extends " + extends + ".AsyncIface";
   }
 
   f_service_ << indent() << "public interface AsyncIface" << extends_iface << " {" << endl << endl;
@@ -2231,7 +2231,7 @@ void t_java_generator::generate_service_service_interface(t_service* tservice) {
   string extends_iface = "";
   if (tservice->get_extends() != NULL) {
     extends = type_name(tservice->get_extends());
-    extends_iface = " extends " + extends + " .ServiceIface";
+    extends_iface = " extends " + extends + ".ServiceIface";
   }
 
   f_service_ << indent() << "public interface ServiceIface" << extends_iface << " {" << endl << endl;
@@ -2609,25 +2609,26 @@ void t_java_generator::generate_service_async_client(t_service* tservice) {
 }
 
 void t_java_generator::generate_service_service_client(t_service* tservice) {
-  string extends = "ServiceIface";
-  string extends_client = "";
-  if (tservice->get_extends() != NULL) {
-    extends = type_name(tservice->get_extends()) + ".ServiceToClient";
-  }
+  string extends;
+  bool does_extend = tservice->get_extends() != NULL;
 
-  // TODO: inheritance (breaks with "extends" here)
+  if (does_extend)
+    extends = "extends " + type_name(tservice->get_extends()) + ".ServiceToClient";
+  else
+    extends = "implements ServiceIface";
 
   indent(f_service_) <<
-    "public static class ServiceToClient implements " << extends << " {" << endl;
+    "public static class ServiceToClient " << extends << " {" << endl;
   indent_up();
 
   indent(f_service_) << "private Service<byte[], byte[]> service;" << endl;
   indent(f_service_) << "private TProtocolFactory protocolFactory;" << endl;
 
   indent(f_service_) << "public ServiceToClient(Service<byte[], byte[]> service, TProtocolFactory protocolFactory) {" << endl;
+  if (does_extend)
+    indent(f_service_) << "  super(service, protocolFactory);" << endl;
   indent(f_service_) << "  this.service = service;" << endl;
   indent(f_service_) << "  this.protocolFactory = protocolFactory;" << endl;
-
   indent(f_service_) << "}" << endl << endl;
 
   // Generate client method implementations
