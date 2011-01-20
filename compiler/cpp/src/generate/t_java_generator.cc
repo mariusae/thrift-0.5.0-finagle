@@ -124,6 +124,7 @@ class t_java_generator : public t_oop_generator {
   void generate_service_async_client(t_service* tservice);
   void generate_service_service_client(t_service* tservice);
   void generate_service_server    (t_service* tservice);
+  void generate_service_service   (t_service* tservice);
   void generate_process_function  (t_service* tservice, t_function* tfunction);
 
   void generate_java_union(t_struct* tstruct);
@@ -355,10 +356,10 @@ string t_java_generator::java_service_imports() {
     string() +
     "import com.twitter.util.Future;\n" +
     "import com.twitter.util.Function;\n" +
+    "import com.twitter.util.Function2;\n" +
     "import com.twitter.util.Try;\n" +
     "import com.twitter.util.Return;\n" +
-    "import com.twitter.util.Throw;\n" +
-    "import com.twitter.finagle.Service;\n\n";
+    "import com.twitter.util.Throw;\n\n";
 }
 
 /**
@@ -2172,6 +2173,7 @@ void t_java_generator::generate_service(t_service* tservice) {
   generate_service_async_client(tservice);
   generate_service_service_client(tservice);
   generate_service_server(tservice);
+  generate_service_service(tservice);
   generate_service_helpers(tservice);
 
   indent_down();
@@ -2621,10 +2623,10 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
     "public static class ServiceToClient " << extends << " {" << endl;
   indent_up();
 
-  indent(f_service_) << "private Service<byte[], byte[]> service;" << endl;
+  indent(f_service_) << "private com.twitter.finagle.Service<byte[], byte[]> service;" << endl;
   indent(f_service_) << "private TProtocolFactory protocolFactory;" << endl;
 
-  indent(f_service_) << "public ServiceToClient(Service<byte[], byte[]> service, TProtocolFactory protocolFactory) {" << endl;
+  indent(f_service_) << "public ServiceToClient(com.twitter.finagle.Service<byte[], byte[]> service, TProtocolFactory protocolFactory) {" << endl;
   if (does_extend)
     indent(f_service_) << "  super(service, protocolFactory);" << endl;
   indent(f_service_) << "  this.service = service;" << endl;
@@ -2728,7 +2730,7 @@ void t_java_generator::generate_service_server(t_service* tservice) {
   if (!extends.empty()) {
     f_service_ <<
       indent() << "super(iface);" << endl;
-  }
+   }
   f_service_ <<
     indent() << "iface_ = iface;" << endl;
 
@@ -2797,6 +2799,183 @@ void t_java_generator::generate_service_server(t_service* tservice) {
   indent(f_service_) <<
     "}" << endl <<
     endl;
+}
+
+void t_java_generator::generate_service_service(t_service* tservice) {
+  // Generate the dispatch methods
+  vector<t_function*> functions = tservice->get_functions();
+  vector<t_function*>::iterator f_iter;
+
+  // Extends stuff
+  string extends = "";
+  string extends_service = "";
+  if (tservice->get_extends() != NULL) {
+    extends = type_name(tservice->get_extends());
+    extends_service = " extends " + extends + ".Service";
+  } else {
+    extends_service = " extends com.twitter.finagle.Service<byte[], byte[]>";
+  }
+
+  // Generate the header portion
+  indent(f_service_) <<
+    "public static class Service" << extends_service << " {" << endl;
+  indent_up();
+  
+  indent(f_service_) << "private final ServiceIface iface;" << endl;
+  indent(f_service_) << "private final TProtocolFactory protocolFactory;" << endl;
+
+  if (extends.empty()) {
+    indent(f_service_) << "protected HashMap<String, Function2<TProtocol, Integer, Future<byte[]>>> functionMap = new HashMap<String, Function2<TProtocol, Integer, Future<byte[]>>>();" << endl;
+  }
+
+  indent(f_service_) <<
+    "public Service(final ServiceIface iface, final TProtocolFactory protocolFactory) {" << endl;
+  indent_up();
+  if (!extends.empty())
+    indent(f_service_) << "super(iface, protocolFactory);" << endl;
+
+  indent(f_service_) << "this.iface = iface;" << endl;
+  indent(f_service_) << "this.protocolFactory = protocolFactory;" << endl;
+
+  for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
+    indent(f_service_)
+      << "functionMap.put(\"" << (*f_iter)->get_name() << "\", new Function2<TProtocol, Integer, Future<byte[]>>() {" << endl;
+    indent_up();
+    indent(f_service_) << "public Future<byte[]> apply(final TProtocol iprot, final Integer seqid) {" << endl;
+    indent_up();
+    
+    indent(f_service_) << (*f_iter)->get_name() + "_args args = new " + (*f_iter)->get_name() + "_args();" << endl;
+
+    indent(f_service_) << "try {" << endl;
+    indent(f_service_) << "  args.read(iprot);" << endl;
+    indent(f_service_) << "} catch (TProtocolException e) {" << endl;
+    indent(f_service_) << "  try {" << endl;
+    indent(f_service_) << "    iprot.readMessageEnd();" << endl;
+    indent(f_service_) << "    TApplicationException x = new TApplicationException(TApplicationException.PROTOCOL_ERROR, e.getMessage());" << endl;
+    indent(f_service_) << "    TMemoryBuffer memoryBuffer = new TMemoryBuffer(512);" << endl;
+    indent(f_service_) << "    TProtocol oprot = protocolFactory.getProtocol(memoryBuffer);" << endl;
+    indent(f_service_) << endl;
+    indent(f_service_) << "    oprot.writeMessageBegin(new TMessage(\"" + (*f_iter)->get_name() +  "\", TMessageType.EXCEPTION, seqid));" << endl;
+    indent(f_service_) << "    x.write(oprot);" << endl;
+    indent(f_service_) << "    oprot.writeMessageEnd();" << endl;
+    indent(f_service_) << "    oprot.getTransport().flush();" << endl;
+    indent(f_service_) << "    byte[] buffer = Arrays.copyOfRange(memoryBuffer.getArray(), 0, memoryBuffer.length());" << endl;
+    indent(f_service_) << "    return Future.value(buffer);" << endl;
+    indent(f_service_) << "  } catch (Exception e1) {" << endl;
+    indent(f_service_) << "    return Future.exception(e1);" << endl;
+    indent(f_service_) << "  }" << endl;
+    indent(f_service_) << "} catch (Exception e) {" << endl;
+    indent(f_service_) << "  return Future.exception(e);" << endl;
+    indent(f_service_) << "}" << endl;
+    indent(f_service_) << endl;
+
+    indent(f_service_) << "try {" << endl;
+    indent(f_service_) << "  iprot.readMessageEnd();" << endl;
+    indent(f_service_) << "} catch (Exception e) {" << endl;
+    indent(f_service_) << "  return Future.exception(e);" << endl;
+    indent(f_service_) << "}" << endl;
+
+    indent(f_service_) << "try {" << endl;
+
+    indent(f_service_) << "  return iface." << (*f_iter)->get_name() << "(";
+
+    {
+      t_struct* arg_struct = (*f_iter)->get_arglist();
+      const std::vector<t_field*>& fields = arg_struct->get_members();
+      vector<t_field*>::const_iterator field_iter;
+      bool first = true;
+      for (field_iter = fields.begin(); field_iter != fields.end(); ++field_iter) {
+        if (first) {
+          first = false;
+        } else {
+          f_service_ << ", ";
+        }
+        f_service_ << "args." << (*field_iter)->get_name();
+      }
+      f_service_ << ")";
+    }
+
+    t_type* ret_type = (*f_iter)->get_returntype();
+
+    f_service_         << ".flatMap(new Function<" + boxed_type_name(ret_type) + ", Try<byte[]>>() {" << endl;
+    indent(f_service_) << "    // TODO: Failures?" << endl;
+    indent(f_service_) << "    public Future<byte[]> apply(" + boxed_type_name(ret_type) + " value) {" << endl;
+    indent(f_service_) << "      " + (*f_iter)->get_name() + "_result result = new " + (*f_iter)->get_name() + "_result();" << endl;
+    
+    if (!ret_type->is_base_type() || ((t_base_type*)ret_type)->get_base() != t_base_type::TYPE_VOID) {
+      indent(f_service_) << "      result.success = value;" << endl;
+      indent(f_service_) << "      result.setSuccessIsSet(true);" << endl;
+    }
+
+    indent(f_service_) << "" << endl;
+    indent(f_service_) << "      try {" << endl;
+    indent(f_service_) << "        TMemoryBuffer memoryBuffer = new TMemoryBuffer(512);" << endl;
+    indent(f_service_) << "        TProtocol oprot = protocolFactory.getProtocol(memoryBuffer);" << endl;
+    indent(f_service_) << "         " << endl;
+    indent(f_service_) << "        oprot.writeMessageBegin(new TMessage(\"" + (*f_iter)->get_name() + "\", TMessageType.REPLY, seqid));" << endl;
+    indent(f_service_) << "        result.write(oprot);" << endl;
+    indent(f_service_) << "        oprot.writeMessageEnd();" << endl;
+    indent(f_service_) << "         " << endl;
+    indent(f_service_) << "        return Future.value(Arrays.copyOfRange(memoryBuffer.getArray(), 0, memoryBuffer.length()));" << endl;
+    indent(f_service_) << "      } catch (Exception e) {" << endl;
+    indent(f_service_) << "        return Future.exception(e);" << endl;
+    indent(f_service_) << "      }" << endl;
+    indent(f_service_) << "    }" << endl;
+    indent(f_service_) << "  });" << endl;
+    indent(f_service_) << "} catch (Exception e) {" << endl;
+    indent(f_service_) << "  return Future.exception(e);" << endl;
+    indent(f_service_) << "}" << endl;
+
+    indent_down();
+    indent(f_service_) << "}" << endl;
+
+    indent_down();
+    indent(f_service_) << "});" << endl;
+    indent(f_service_) << endl;
+  }
+
+  scope_down(f_service_);
+
+  indent(f_service_) << endl;
+  indent(f_service_) << "public Future<byte[]> apply(byte[] request) {" << endl;
+  indent(f_service_) << "  TTransport inputTransport = new TMemoryInputTransport(request);" << endl;
+  indent(f_service_) << "  TProtocol iprot = protocolFactory.getProtocol(inputTransport);" << endl;
+  indent(f_service_) << endl;
+  indent(f_service_) << "  TMessage msg;" << endl;
+  indent(f_service_) << "  try {" << endl;
+  indent(f_service_) << "    msg = iprot.readMessageBegin();" << endl;
+  indent(f_service_) << "  } catch (Exception e) {" << endl;
+  indent(f_service_) << "    return Future.exception(e);" << endl;
+  indent(f_service_) << "  }" << endl;
+  indent(f_service_) << endl;
+  indent(f_service_) << "  Function2<TProtocol, Integer, Future<byte[]>> fn = functionMap.get(msg.name);" << endl;
+  indent(f_service_) << "  if (fn == null) {" << endl;
+  indent(f_service_) << "    try {" << endl;
+  indent(f_service_) << "      TProtocolUtil.skip(iprot, TType.STRUCT);" << endl;
+  indent(f_service_) << "      iprot.readMessageEnd();" << endl;
+  indent(f_service_) << "      TApplicationException x = new TApplicationException(TApplicationException.UNKNOWN_METHOD, \"Invalid method name: '\"+msg.name+\"'\");" << endl;
+  indent(f_service_) << "      TMemoryBuffer memoryBuffer = new TMemoryBuffer(512);" << endl;
+  indent(f_service_) << "      TProtocol oprot = protocolFactory.getProtocol(memoryBuffer);" << endl;
+  indent(f_service_) << "      oprot.writeMessageBegin(new TMessage(msg.name, TMessageType.EXCEPTION, msg.seqid));" << endl;
+  indent(f_service_) << "      x.write(oprot);" << endl;
+  indent(f_service_) << "      oprot.writeMessageEnd();" << endl;
+  indent(f_service_) << "      oprot.getTransport().flush();" << endl;
+  indent(f_service_) << "      return Future.value(Arrays.copyOfRange(memoryBuffer.getArray(), 0, memoryBuffer.length()));" << endl;
+  indent(f_service_) << "    } catch (Exception e) {" << endl;
+  indent(f_service_) << "      return Future.exception(e);" << endl;
+  indent(f_service_) << "    }" << endl;
+  indent(f_service_) << "  }" << endl;
+  indent(f_service_) << endl;
+  indent(f_service_) << "  return fn.apply(iprot, msg.seqid);" << endl;
+  indent(f_service_) << "}" << endl;
+
+  f_service_ << endl;
+
+  indent_down();
+  indent(f_service_) <<
+    "}" << endl <<
+    endl;
+  
 }
 
 /**
