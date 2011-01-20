@@ -2646,7 +2646,7 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
 
     indent(f_service_) << "public " << function_signature_service(*f_iter) << " throws TException {" << endl;
     indent(f_service_) << "  // TODO: size" << endl;
-    indent(f_service_) << "  TMemoryBuffer memoryTransport = new TMemoryBuffer(123);" << endl;
+    indent(f_service_) << "  TMemoryBuffer memoryTransport = new TMemoryBuffer(512);" << endl;
     indent(f_service_) << "  TProtocol prot = protocolFactory.getProtocol(memoryTransport);" << endl;
     indent_up();
 
@@ -2666,7 +2666,8 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
 
     indent(f_service_) << endl << endl;
 
-    indent(f_service_) << "  Future<byte[]> done = this.service.apply(memoryTransport.getArray());" << endl;
+    indent(f_service_) << "  byte[] buffer = Arrays.copyOfRange(memoryTransport.getArray(), 0, memoryTransport.length());" << endl;
+    indent(f_service_) << "  Future<byte[]> done = this.service.apply(buffer);" << endl;
     
 
     indent(f_service_) << "  return done.flatMap(new Function<byte[], Try<" + boxed_type_name(ret_type) + ">>() {" << endl;
@@ -2675,8 +2676,14 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
     indent(f_service_) << "      TMemoryInputTransport memoryTransport = new TMemoryInputTransport(buffer);" << endl;
     indent(f_service_) << "      TProtocol prot = protocolFactory.getProtocol(memoryTransport);" << endl;
     indent(f_service_) << "      try {" << endl;
-    indent(f_service_) << "        return Future.value((new Client(prot)).recv_" + funname + "());" << endl;
-    indent(f_service_) << "      } catch (TException e) {" << endl;
+    if (ret_type->is_base_type() && ((t_base_type*)ret_type)->get_base() == t_base_type::TYPE_VOID) {
+      indent(f_service_) << "        (new Client(prot)).recv_" + funname + "();" << endl;
+      indent(f_service_) << "        return Future.value(null);" << endl;
+    } else {
+      indent(f_service_) << "        return Future.value((new Client(prot)).recv_" + funname + "());" << endl;
+    }
+
+    indent(f_service_) << "      } catch (Exception e) {" << endl;
     indent(f_service_) << "        return Future.exception(e);" << endl;
     indent(f_service_) << "      }" << endl;
     indent(f_service_) << "    }" << endl;
@@ -3906,6 +3913,8 @@ string t_java_generator::boxed_type_name(t_type* type) {
       return "Long";
     case t_base_type::TYPE_DOUBLE:
       return "Double";
+    case t_base_type::TYPE_VOID:
+      return "Void";
     default:
       break;
     }
