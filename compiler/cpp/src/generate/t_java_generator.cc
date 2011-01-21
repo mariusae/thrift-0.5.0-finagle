@@ -2876,11 +2876,12 @@ void t_java_generator::generate_service_service(t_service* tservice) {
     indent(f_service_) << "  return Future.exception(e);" << endl;
     indent(f_service_) << "}" << endl;
 
+    t_type* ret_type = (*f_iter)->get_returntype();
+    indent(f_service_) << "Future<" + boxed_type_name(ret_type) + "> future;" << endl;
+
     indent(f_service_) << "try {" << endl;
-
-    indent(f_service_) << "  return iface." << (*f_iter)->get_name() << "(";
-
-    {
+    indent(f_service_) << "  future = iface." << (*f_iter)->get_name() << "(";
+    { // argument list
       t_struct* arg_struct = (*f_iter)->get_arglist();
       const std::vector<t_field*>& fields = arg_struct->get_members();
       vector<t_field*>::const_iterator field_iter;
@@ -2893,12 +2894,14 @@ void t_java_generator::generate_service_service(t_service* tservice) {
         }
         f_service_ << "args." << (*field_iter)->get_name();
       }
-      f_service_ << ")";
+      f_service_ << ");" << endl;
     }
+    indent(f_service_) << "} catch (Exception e) {" << endl;
+    indent(f_service_) << "  future = Future.exception(e);" << endl;
+    indent(f_service_) << "}" << endl;
 
-    t_type* ret_type = (*f_iter)->get_returntype();
-
-    f_service_         << ".flatMap(new Function<" + boxed_type_name(ret_type) + ", Try<byte[]>>() {" << endl;
+    indent(f_service_) << "try {" << endl;
+    indent(f_service_) << "  return future.flatMap(new Function<" + boxed_type_name(ret_type) + ", Try<byte[]>>() {" << endl;
     indent(f_service_) << "    public Future<byte[]> apply(" + boxed_type_name(ret_type) + " value) {" << endl;
     indent(f_service_) << "      " + (*f_iter)->get_name() + "_result result = new " + (*f_iter)->get_name() + "_result();" << endl;
 
