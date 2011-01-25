@@ -2241,7 +2241,7 @@ void t_java_generator::generate_service_service_interface(t_service* tservice) {
   vector<t_function*> functions = tservice->get_functions();
   vector<t_function*>::iterator f_iter;
   for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
-    indent(f_service_) << "public " << function_signature_service(*f_iter) << " throws TException;" << endl << endl;
+    indent(f_service_) << "public " << function_signature_service(*f_iter) << ";" << endl << endl;
   }
   indent_down();
   f_service_ << indent() << "}" << endl << endl;
@@ -2619,8 +2619,7 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
   else
     extends = "implements ServiceIface";
 
-  indent(f_service_) <<
-    "public static class ServiceToClient " << extends << " {" << endl;
+  indent(f_service_) << "public static class ServiceToClient " << extends << " {" << endl;
   indent_up();
 
   indent(f_service_) << "private com.twitter.finagle.Service<byte[], byte[]> service;" << endl;
@@ -2646,7 +2645,10 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
     string args_name = (*f_iter)->get_name() + "_args";
     string result_name = (*f_iter)->get_name() + "_result";
 
-    indent(f_service_) << "public " << function_signature_service(*f_iter) << " throws TException {" << endl;
+    indent(f_service_) << "public " << function_signature_service(*f_iter) << " {" << endl;
+    indent(f_service_) << "  try {" << endl;
+    indent_up();
+
     indent(f_service_) << "  // TODO: size" << endl;
     indent(f_service_) << "  TMemoryBuffer memoryTransport = new TMemoryBuffer(512);" << endl;
     indent(f_service_) << "  TProtocol prot = protocolFactory.getProtocol(memoryTransport);" << endl;
@@ -2691,6 +2693,11 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
     indent(f_service_) << "      }" << endl;
     indent(f_service_) << "    }" << endl;
     indent(f_service_) << "  });" << endl;
+
+    indent_down();
+    indent(f_service_) << "  } catch (TException e) {" << endl;
+    indent(f_service_) << "    return Future.exception(e);" << endl;
+    indent(f_service_) << "  }" << endl;
 
     indent(f_service_) << "}" << endl;
   }
