@@ -359,7 +359,8 @@ string t_java_generator::java_service_imports() {
     "import com.twitter.util.Function2;\n" +
     "import com.twitter.util.Try;\n" +
     "import com.twitter.util.Return;\n" +
-    "import com.twitter.util.Throw;\n\n";
+    "import com.twitter.util.Throw;\n" +
+    "import com.twitter.finagle.thrift.ThriftClientRequest;\n\n";
 }
 
 /**
@@ -2622,10 +2623,10 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
   indent(f_service_) << "public static class ServiceToClient " << extends << " {" << endl;
   indent_up();
 
-  indent(f_service_) << "private com.twitter.finagle.Service<byte[], byte[]> service;" << endl;
+  indent(f_service_) << "private com.twitter.finagle.Service<ThriftClientRequest, byte[]> service;" << endl;
   indent(f_service_) << "private TProtocolFactory protocolFactory;" << endl;
 
-  indent(f_service_) << "public ServiceToClient(com.twitter.finagle.Service<byte[], byte[]> service, TProtocolFactory protocolFactory) {" << endl;
+  indent(f_service_) << "public ServiceToClient(com.twitter.finagle.Service<ThriftClientRequest, byte[]> service, TProtocolFactory protocolFactory) {" << endl;
   if (does_extend)
     indent(f_service_) << "  super(service, protocolFactory);" << endl;
   indent(f_service_) << "  this.service = service;" << endl;
@@ -2671,9 +2672,9 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
     indent(f_service_) << endl << endl;
 
     indent(f_service_) << "  byte[] buffer = Arrays.copyOfRange(memoryTransport.getArray(), 0, memoryTransport.length());" << endl;
-    indent(f_service_) << "  Future<byte[]> done = this.service.apply(buffer);" << endl;
+    indent(f_service_) << "  ThriftClientRequest request = new ThriftClientRequest(buffer, " + (string)((*f_iter)->is_oneway() ? "true" : "false") + ");" << endl;
+    indent(f_service_) << "  Future<byte[]> done = this.service.apply(request);" << endl;
     
-
     indent(f_service_) << "  return done.flatMap(new Function<byte[], Try<" + boxed_type_name(ret_type) + ">>() {" << endl;
 
     indent(f_service_) << "    public Future<" + boxed_type_name(ret_type) + "> apply(byte[] buffer) {"  << endl;
@@ -2682,7 +2683,8 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
     indent(f_service_) << "      try {" << endl;
 
     if ((*f_iter)->is_oneway() || (*f_iter)->get_returntype()->is_void()) {
-      indent(f_service_) << "        (new Client(prot)).recv_" + funname + "();" << endl;
+      if (!(*f_iter)->is_oneway())
+        indent(f_service_) << "        (new Client(prot)).recv_" + funname + "();" << endl;
       indent(f_service_) << "        return Future.value(null);" << endl;
     } else {
       indent(f_service_) << "        return Future.value((new Client(prot)).recv_" + funname + "());" << endl;
@@ -2907,89 +2909,97 @@ void t_java_generator::generate_service_service(t_service* tservice) {
     indent(f_service_) << "  future = Future.exception(e);" << endl;
     indent(f_service_) << "}" << endl;
 
-    indent(f_service_) << "try {" << endl;
-    indent(f_service_) << "  return future.flatMap(new Function<" + boxed_type_name(ret_type) + ", Try<byte[]>>() {" << endl;
-    indent(f_service_) << "    public Future<byte[]> apply(" + boxed_type_name(ret_type) + " value) {" << endl;
-    indent(f_service_) << "      " + (*f_iter)->get_name() + "_result result = new " + (*f_iter)->get_name() + "_result();" << endl;
-
-    if (!(*f_iter)->is_oneway() && !ret_type->is_void()) {
-      indent(f_service_) << "      result.success = value;" << endl;
-      indent(f_service_) << "      result.set" << get_cap_name("success") << get_cap_name("isSet") << "(true);" << endl;
-    }
-
-    indent(f_service_) << "" << endl;
-    indent(f_service_) << "      try {" << endl;
-    indent(f_service_) << "        TMemoryBuffer memoryBuffer = new TMemoryBuffer(512);" << endl;
-    indent(f_service_) << "        TProtocol oprot = protocolFactory.getProtocol(memoryBuffer);" << endl;
-    indent(f_service_) << "         " << endl;
-    indent(f_service_) << "        oprot.writeMessageBegin(new TMessage(\"" + (*f_iter)->get_name() + "\", TMessageType.REPLY, seqid));" << endl;
-    indent(f_service_) << "        result.write(oprot);" << endl;
-    indent(f_service_) << "        oprot.writeMessageEnd();" << endl;
-    indent(f_service_) << "         " << endl;
-    indent(f_service_) << "        return Future.value(Arrays.copyOfRange(memoryBuffer.getArray(), 0, memoryBuffer.length()));" << endl;
-    indent(f_service_) << "      } catch (Exception e) {" << endl;
-    indent(f_service_) << "        return Future.exception(e);" << endl;
-    indent(f_service_) << "      }" << endl;
-    indent(f_service_) << "    }" << endl;
-    indent(f_service_) << "  }).rescue(new Function<Throwable, Try<byte[]>>() {" << endl;
-    indent(f_service_) << "    public Try<byte[]> apply(Throwable t) {" << endl;
-    indent(f_service_) << "      TMemoryBuffer memoryBuffer = new TMemoryBuffer(512);" << endl;
-    indent(f_service_) << "      TProtocol oprot = protocolFactory.getProtocol(memoryBuffer);" << endl;
-
-    
-    indent(f_service_) << "      try {" << endl;
-    indent_up();
-
-    t_struct* xs = (*f_iter)->get_xceptions();
-    const std::vector<t_field*>& xceptions = xs->get_members();
-    vector<t_field*>::const_iterator x_iter;
-    if (!(*f_iter)->is_oneway() && xceptions.size() > 0) {
+    if ((*f_iter)->is_oneway()) {
+      indent(f_service_) << "return future.map(new Function<" + boxed_type_name(ret_type) + ", byte[]>() {" << endl;
+      indent(f_service_) << "  public byte[] apply(" + boxed_type_name(ret_type) + " value) {" << endl;
+      indent(f_service_) << "    return new byte[0];" << endl;
+      indent(f_service_) << "  }" << endl;
+      indent(f_service_) << "});" << endl;
+    } else {
+      indent(f_service_) << "try {" << endl;
+      indent(f_service_) << "  return future.flatMap(new Function<" + boxed_type_name(ret_type) + ", Try<byte[]>>() {" << endl;
+      indent(f_service_) << "    public Future<byte[]> apply(" + boxed_type_name(ret_type) + " value) {" << endl;
       indent(f_service_) << "      " + (*f_iter)->get_name() + "_result result = new " + (*f_iter)->get_name() + "_result();" << endl;
-
-      for (x_iter = xceptions.begin(); x_iter != xceptions.end(); ++x_iter) {
-        string prefix("");
-        if (x_iter != xceptions.begin())
-          prefix = "else ";
-
-        indent(f_service_) << "      " + prefix + "if (t instanceof " + type_name((*x_iter)->get_type(), false, false) + ") {" << endl;
-        indent(f_service_) << "        result." << (*x_iter)->get_name() << " = " << "(" + type_name((*x_iter)->get_type(), false, false) + ")" + "t" << ";" << endl;
-        indent(f_service_) << "      }" << endl;
+       
+      if (!(*f_iter)->is_oneway() && !ret_type->is_void()) {
+        indent(f_service_) << "      result.success = value;" << endl;
+        indent(f_service_) << "      result.set" << get_cap_name("success") << get_cap_name("isSet") << "(true);" << endl;
       }
-
-      indent(f_service_) << "      else {" << endl;
-
-      indent_up();
-    }
-
-    indent(f_service_) << "      TApplicationException x = new TApplicationException(TApplicationException.INTERNAL_ERROR, \"Internal error processing " + (*f_iter)->get_name() + "\");" << endl;
-    indent(f_service_) << "      oprot.writeMessageBegin(new TMessage(\"" + (*f_iter)->get_name() + "\", TMessageType.EXCEPTION, seqid));" << endl;
-    indent(f_service_) << "      x.write(oprot);" << endl;
-    indent(f_service_) << "      oprot.writeMessageEnd();" << endl;
-    indent(f_service_) << "      oprot.getTransport().flush();" << endl;
-    indent(f_service_) << "      return Future.value(Arrays.copyOfRange(memoryBuffer.getArray(), 0, memoryBuffer.length()));" << endl;
-
-    if (!(*f_iter)->is_oneway() && xceptions.size() > 0) {
-      indent_down();
+       
+      indent(f_service_) << "" << endl;
+      indent(f_service_) << "      try {" << endl;
+      indent(f_service_) << "        TMemoryBuffer memoryBuffer = new TMemoryBuffer(512);" << endl;
+      indent(f_service_) << "        TProtocol oprot = protocolFactory.getProtocol(memoryBuffer);" << endl;
+      indent(f_service_) << "         " << endl;
+      indent(f_service_) << "        oprot.writeMessageBegin(new TMessage(\"" + (*f_iter)->get_name() + "\", TMessageType.REPLY, seqid));" << endl;
+      indent(f_service_) << "        result.write(oprot);" << endl;
+      indent(f_service_) << "        oprot.writeMessageEnd();" << endl;
+      indent(f_service_) << "         " << endl;
+      indent(f_service_) << "        return Future.value(Arrays.copyOfRange(memoryBuffer.getArray(), 0, memoryBuffer.length()));" << endl;
+      indent(f_service_) << "      } catch (Exception e) {" << endl;
+      indent(f_service_) << "        return Future.exception(e);" << endl;
       indent(f_service_) << "      }" << endl;
-
-      indent(f_service_) << "      oprot.writeMessageBegin(new TMessage(\"" + (*f_iter)->get_name() + "\", TMessageType.REPLY, seqid));" << endl;
-      indent(f_service_) << "      result.write(oprot);" << endl;
+      indent(f_service_) << "    }" << endl;
+      indent(f_service_) << "  }).rescue(new Function<Throwable, Try<byte[]>>() {" << endl;
+      indent(f_service_) << "    public Try<byte[]> apply(Throwable t) {" << endl;
+      indent(f_service_) << "      TMemoryBuffer memoryBuffer = new TMemoryBuffer(512);" << endl;
+      indent(f_service_) << "      TProtocol oprot = protocolFactory.getProtocol(memoryBuffer);" << endl;
+       
+       
+      indent(f_service_) << "      try {" << endl;
+      indent_up();
+       
+      t_struct* xs = (*f_iter)->get_xceptions();
+      const std::vector<t_field*>& xceptions = xs->get_members();
+      vector<t_field*>::const_iterator x_iter;
+      if (!(*f_iter)->is_oneway() && xceptions.size() > 0) {
+        indent(f_service_) << "      " + (*f_iter)->get_name() + "_result result = new " + (*f_iter)->get_name() + "_result();" << endl;
+       
+        for (x_iter = xceptions.begin(); x_iter != xceptions.end(); ++x_iter) {
+          string prefix("");
+          if (x_iter != xceptions.begin())
+            prefix = "else ";
+       
+          indent(f_service_) << "      " + prefix + "if (t instanceof " + type_name((*x_iter)->get_type(), false, false) + ") {" << endl;
+          indent(f_service_) << "        result." << (*x_iter)->get_name() << " = " << "(" + type_name((*x_iter)->get_type(), false, false) + ")" + "t" << ";" << endl;
+          indent(f_service_) << "      }" << endl;
+        }
+       
+        indent(f_service_) << "      else {" << endl;
+       
+        indent_up();
+      }
+       
+      indent(f_service_) << "      TApplicationException x = new TApplicationException(TApplicationException.INTERNAL_ERROR, \"Internal error processing " + (*f_iter)->get_name() + "\");" << endl;
+      indent(f_service_) << "      oprot.writeMessageBegin(new TMessage(\"" + (*f_iter)->get_name() + "\", TMessageType.EXCEPTION, seqid));" << endl;
+      indent(f_service_) << "      x.write(oprot);" << endl;
       indent(f_service_) << "      oprot.writeMessageEnd();" << endl;
       indent(f_service_) << "      oprot.getTransport().flush();" << endl;
       indent(f_service_) << "      return Future.value(Arrays.copyOfRange(memoryBuffer.getArray(), 0, memoryBuffer.length()));" << endl;
+       
+      if (!(*f_iter)->is_oneway() && xceptions.size() > 0) {
+        indent_down();
+        indent(f_service_) << "      }" << endl;
+       
+        indent(f_service_) << "      oprot.writeMessageBegin(new TMessage(\"" + (*f_iter)->get_name() + "\", TMessageType.REPLY, seqid));" << endl;
+        indent(f_service_) << "      result.write(oprot);" << endl;
+        indent(f_service_) << "      oprot.writeMessageEnd();" << endl;
+        indent(f_service_) << "      oprot.getTransport().flush();" << endl;
+        indent(f_service_) << "      return Future.value(Arrays.copyOfRange(memoryBuffer.getArray(), 0, memoryBuffer.length()));" << endl;
+      }
+       
+      indent_down();
+      indent(f_service_) << "      } catch (Exception e) {" << endl;
+      indent(f_service_) << "        return Future.exception(e);" << endl;
+      indent(f_service_) << "      }" << endl;
+       
+      indent(f_service_) << "    }" << endl;
+       
+      indent(f_service_) << "  });" << endl;
+      indent(f_service_) << "} catch (Exception e) {" << endl;
+      indent(f_service_) << "  return Future.exception(e);" << endl;
+      indent(f_service_) << "}" << endl;
     }
-
-    indent_down();
-    indent(f_service_) << "      } catch (Exception e) {" << endl;
-    indent(f_service_) << "        return Future.exception(e);" << endl;
-    indent(f_service_) << "      }" << endl;
- 
-    indent(f_service_) << "    }" << endl;
-
-    indent(f_service_) << "  });" << endl;
-    indent(f_service_) << "} catch (Exception e) {" << endl;
-    indent(f_service_) << "  return Future.exception(e);" << endl;
-    indent(f_service_) << "}" << endl;
 
     indent_down();
 
