@@ -2651,43 +2651,43 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
     indent_up();
 
     indent(f_service_) << "  // TODO: size" << endl;
-    indent(f_service_) << "  TMemoryBuffer memoryTransport = new TMemoryBuffer(512);" << endl;
-    indent(f_service_) << "  TProtocol prot = protocolFactory.getProtocol(memoryTransport);" << endl;
+    indent(f_service_) << "  TMemoryBuffer __memoryTransport__ = new TMemoryBuffer(512);" << endl;
+    indent(f_service_) << "  TProtocol __prot__ = this.protocolFactory.getProtocol(__memoryTransport__);" << endl;
     indent_up();
 
     f_service_ << 
-      indent() << "prot.writeMessageBegin(new TMessage(\"" << funname << "\", TMessageType.CALL, 0));" << endl <<
-      indent() << args_name << " args = new " << args_name << "();" << endl;
+      indent() << "__prot__.writeMessageBegin(new TMessage(\"" << funname << "\", TMessageType.CALL, 0));" << endl <<
+      indent() << args_name << " __args__ = new " << args_name << "();" << endl;
 
     for (fld_iter = fields.begin(); fld_iter != fields.end(); ++fld_iter) {
-      f_service_ << indent() << "args.set" << get_cap_name((*fld_iter)->get_name()) << "(" << (*fld_iter)->get_name() << ");" << endl;
+      f_service_ << indent() << "__args__.set" << get_cap_name((*fld_iter)->get_name()) << "(" << (*fld_iter)->get_name() << ");" << endl;
     }
 
     f_service_ << 
-      indent() << "args.write(prot);" << endl <<
-      indent() << "prot.writeMessageEnd();" << endl;
+      indent() << "__args__.write(__prot__);" << endl <<
+      indent() << "__prot__.writeMessageEnd();" << endl;
 
     indent_down();
 
     indent(f_service_) << endl << endl;
 
-    indent(f_service_) << "  byte[] buffer = Arrays.copyOfRange(memoryTransport.getArray(), 0, memoryTransport.length());" << endl;
-    indent(f_service_) << "  ThriftClientRequest request = new ThriftClientRequest(buffer, " + (string)((*f_iter)->is_oneway() ? "true" : "false") + ");" << endl;
-    indent(f_service_) << "  Future<byte[]> done = this.service.apply(request);" << endl;
+    indent(f_service_) << "  byte[] __buffer__ = Arrays.copyOfRange(__memoryTransport__.getArray(), 0, __memoryTransport__.length());" << endl;
+    indent(f_service_) << "  ThriftClientRequest __request__ = new ThriftClientRequest(__buffer__, " + (string)((*f_iter)->is_oneway() ? "true" : "false") + ");" << endl;
+    indent(f_service_) << "  Future<byte[]> __done__ = this.service.apply(__request__);" << endl;
     
-    indent(f_service_) << "  return done.flatMap(new Function<byte[], Try<" + boxed_type_name(ret_type) + ">>() {" << endl;
+    indent(f_service_) << "  return __done__.flatMap(new Function<byte[], Try<" + boxed_type_name(ret_type) + ">>() {" << endl;
 
-    indent(f_service_) << "    public Future<" + boxed_type_name(ret_type) + "> apply(byte[] buffer) {"  << endl;
-    indent(f_service_) << "      TMemoryInputTransport memoryTransport = new TMemoryInputTransport(buffer);" << endl;
-    indent(f_service_) << "      TProtocol prot = protocolFactory.getProtocol(memoryTransport);" << endl;
+    indent(f_service_) << "    public Future<" + boxed_type_name(ret_type) + "> apply(byte[] __buffer__) {"  << endl;
+    indent(f_service_) << "      TMemoryInputTransport __memoryTransport__ = new TMemoryInputTransport(__buffer__);" << endl;
+    indent(f_service_) << "      TProtocol __prot__ = ServiceToClient.this.protocolFactory.getProtocol(__memoryTransport__);" << endl;
     indent(f_service_) << "      try {" << endl;
 
     if ((*f_iter)->is_oneway() || (*f_iter)->get_returntype()->is_void()) {
       if (!(*f_iter)->is_oneway())
-        indent(f_service_) << "        (new Client(prot)).recv_" + funname + "();" << endl;
+        indent(f_service_) << "        (new Client(__prot__)).recv_" + funname + "();" << endl;
       indent(f_service_) << "        return Future.value(null);" << endl;
     } else {
-      indent(f_service_) << "        return Future.value((new Client(prot)).recv_" + funname + "());" << endl;
+      indent(f_service_) << "        return Future.value((new Client(__prot__)).recv_" + funname + "());" << endl;
     }
 
     indent(f_service_) << "      } catch (Exception e) {" << endl;
