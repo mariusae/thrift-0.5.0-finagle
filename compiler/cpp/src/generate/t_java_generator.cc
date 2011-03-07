@@ -2675,7 +2675,7 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
     indent(f_service_) << "  ThriftClientRequest __request__ = new ThriftClientRequest(__buffer__, " + (string)((*f_iter)->is_oneway() ? "true" : "false") + ");" << endl;
     indent(f_service_) << "  Future<byte[]> __done__ = this.service.apply(__request__);" << endl;
     
-    indent(f_service_) << "  return __done__.flatMap(new Function<byte[], Try<" + boxed_type_name(ret_type) + ">>() {" << endl;
+    indent(f_service_) << "  return __done__.flatMap(new Function<byte[], Future<" + boxed_type_name(ret_type) + ">>() {" << endl;
 
     indent(f_service_) << "    public Future<" + boxed_type_name(ret_type) + "> apply(byte[] __buffer__) {"  << endl;
     indent(f_service_) << "      TMemoryInputTransport __memoryTransport__ = new TMemoryInputTransport(__buffer__);" << endl;
@@ -2917,7 +2917,7 @@ void t_java_generator::generate_service_service(t_service* tservice) {
       indent(f_service_) << "});" << endl;
     } else {
       indent(f_service_) << "try {" << endl;
-      indent(f_service_) << "  return future.flatMap(new Function<" + boxed_type_name(ret_type) + ", Try<byte[]>>() {" << endl;
+      indent(f_service_) << "  return future.flatMap(new Function<" + boxed_type_name(ret_type) + ", Future<byte[]>>() {" << endl;
       indent(f_service_) << "    public Future<byte[]> apply(" + boxed_type_name(ret_type) + " value) {" << endl;
       indent(f_service_) << "      " + (*f_iter)->get_name() + "_result result = new " + (*f_iter)->get_name() + "_result();" << endl;
        
@@ -2940,8 +2940,8 @@ void t_java_generator::generate_service_service(t_service* tservice) {
       indent(f_service_) << "        return Future.exception(e);" << endl;
       indent(f_service_) << "      }" << endl;
       indent(f_service_) << "    }" << endl;
-      indent(f_service_) << "  }).rescue(new Function<Throwable, Try<byte[]>>() {" << endl;
-      indent(f_service_) << "    public Try<byte[]> apply(Throwable t) {" << endl;
+      indent(f_service_) << "  }).rescue(new Function<Throwable, Future<byte[]>>() {" << endl;
+      indent(f_service_) << "    public Future<byte[]> apply(Throwable t) {" << endl;
       indent(f_service_) << "      TMemoryBuffer memoryBuffer = new TMemoryBuffer(512);" << endl;
       indent(f_service_) << "      TProtocol oprot = protocolFactory.getProtocol(memoryBuffer);" << endl;
        
