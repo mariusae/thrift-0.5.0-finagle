@@ -2616,11 +2616,11 @@ void t_java_generator::generate_service_service_client(t_service* tservice) {
   bool does_extend = tservice->get_extends() != NULL;
 
   if (does_extend)
-    extends = "extends " + type_name(tservice->get_extends()) + ".ServiceToClient";
+    extends = "extends " + type_name(tservice->get_extends()) + ".ServiceToClient ";
   else
-    extends = "implements ServiceIface";
+    extends = "";
 
-  indent(f_service_) << "public static class ServiceToClient " << extends << " {" << endl;
+  indent(f_service_) << "public static class ServiceToClient " << extends << "implements ServiceIface {" << endl;
   indent_up();
 
   indent(f_service_) << "private com.twitter.finagle.Service<ThriftClientRequest, byte[]> service;" << endl;
