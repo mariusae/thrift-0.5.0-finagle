@@ -219,6 +219,7 @@ class t_java_generator : public t_oop_generator {
   std::string java_type_imports();
   std::string java_thrift_imports();
   std::string java_service_imports();
+  std::string java_struct_imports();
   std::string type_name(t_type* ttype, bool in_container=false, bool in_init=false, bool skip_generic=false);
   std::string base_type_name(t_base_type* tbase, bool in_container=false);
   std::string declare_field(t_field* tfield, bool init=false);
@@ -363,6 +364,11 @@ string t_java_generator::java_service_imports() {
     "import com.twitter.finagle.thrift.ThriftClientRequest;\n\n";
 }
 
+string t_java_generator::java_struct_imports() {
+  return
+    string() +
+    "// No additional import required for struct/union.\n\n";
+}
 /**
  * Nothing in Java
  */
@@ -690,7 +696,7 @@ void t_java_generator::generate_java_struct(t_struct* tstruct,
     java_package() <<
     java_type_imports() <<
     java_thrift_imports() <<
-    java_service_imports();
+    java_struct_imports();
 
   generate_java_struct_definition(f_struct,
                                   tstruct,
@@ -714,7 +720,7 @@ void t_java_generator::generate_java_union(t_struct* tstruct) {
     java_package() <<
     java_type_imports() <<
     java_thrift_imports() <<
-    java_service_imports();
+    java_struct_imports();
 
   generate_java_doc(f_struct, tstruct);
 
