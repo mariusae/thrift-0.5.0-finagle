@@ -27,3 +27,5 @@ lib/php/src/ext/thrift_protocol/modules
 lib/py/build
 lib/rb/.config
 lib/rb/ext/mkmf.log
+*.iml
+.idea
