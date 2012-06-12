@@ -4170,6 +4170,8 @@ string t_java_generator::boxed_type_name(t_type* type) {
     default:
       break;
     }
+  } else if (type->is_typedef()) {
+    return boxed_type_name(((t_typedef*)type)->get_type());
   }
   return type_name(type);
 }
